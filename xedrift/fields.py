@@ -13,8 +13,14 @@ class Field:
     def _set_components_convenience(self):
         for comp, idx in self.components.items():
             setattr(self,comp,self.field_values[self._get_component_slice(idx)])
-        
-    def _read_data(self,file):
+
+    def _set_grid_convenience(self):
+        if(self.dim_space == 2):
+            self.rs, self.zs = self.grid[0], self.grid[1]
+        elif(self.dim_space==3):
+            self.xs, self.ys, self.zs = self.grid[0], self.grid[1], self.grid[2]
+
+    def _read_comsol_data(self,file):
         attr = file.readline()
         reg = r'\.(.+?)\s'
         attr = re.search(reg,attr).group(1)
@@ -32,19 +38,29 @@ class Field:
         comp_slice = self._get_component_slice(comp_idx)
         self.field_values[comp_slice] = data
 
-    def _set_grid_convenience(self):
-        if(self.dim_space == 2):
-            self.rs, self.zs = self.grid[0], self.grid[1]
-        elif(self.dim_space==3):
-            self.xs, self.ys, self.zs = self.grid[0], self.grid[1], self.grid[2]
-        
-    def __init__(self,filename=None):
+    def _from_grid_values(self,grid,values,components):
+        self.grid = grid
+        self.field_values = values
+        self.dim_space = grid.shape[0]
+        self.dim = values.shape[-1]
+        self.shape = tuple(len(dim) for dim in self.grid)
+
+        for comp_idx, comp in enumerate(components):
+            self._set_component_index(comp,comp_idx)
+
+        self._finalize()
+
+    def __init__(self,filename=None,gridspec=None):
         self.components = {}
         self.interpolator = {}
         self.dim_space = -1
         self.dim_field = -1
         self.grid = None
         
+        if filename is None:
+            self._from_grid_values(gridspec[0],gridspec[1],gridspec[2])
+            return
+
         file = open(filename,'r')
 
         while True:
@@ -58,7 +74,6 @@ class Field:
             if '% Expressions' in line:
                 self.dim_field = int(line[-2]) #-1 is \n, -2 is dimension
 
-            #print(line)
             if not self.grid and '% Grid' in line:
                 self.grid = tuple(np.genfromtxt(file,max_rows=1)/10 for i in range(self.dim_space))#convert mm to cm
                 self.shape = tuple(len(dim) for dim in self.grid)
@@ -68,7 +83,7 @@ class Field:
                 continue
 
             if '% Data' in line:
-                self._read_data(file)
+                self._read_comsol_data(file)
                 continue
         
         self._finalize()
@@ -85,7 +100,7 @@ class Field:
             return self.interpolator(pos)
         except ValueError:
             print("Error at {}".format(pos))
-            return np.zeros_like(pos)
+            return np.zeros(self.dim_field)
 
     def _check_operator_valid(self,other):
         if not isinstance(other,Field):
