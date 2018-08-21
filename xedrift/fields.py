@@ -42,7 +42,7 @@ class Field:
         self.grid = grid
         self.field_values = values
         self.dim_space = grid.shape[0]
-        self.dim = values.shape[-1]
+        self.dim_field = values.shape[-1]
         self.shape = tuple(len(dim) for dim in self.grid)
 
         for comp_idx, comp in enumerate(components):
