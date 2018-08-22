@@ -4,6 +4,13 @@ from scipy.interpolate import RegularGridInterpolator
 import copy
 
 class Field:
+    """
+    Represents a multi-dimensional field given on a grid
+
+    Allows interpolation of field values for off-grid positions,
+    calculation of superpositions of multiple fields and reading COMSOL exported .txt
+    """
+
     def _set_component_index(self,name,index):
         self.components[name] = index
 
@@ -20,7 +27,36 @@ class Field:
         elif(self.dim_space==3):
             self.xs, self.ys, self.zs = self.grid[0], self.grid[1], self.grid[2]
 
+    def _from_comsol_file(self,filename):
+        """Build instance from a COMSOL .txt grid export file"""
+
+        file = open(filename,'r')
+
+        while True:
+            line = file.readline()
+            if not line:
+                break
+
+            if '% Dimension' in line:
+                self.dim_space = int(line[-2]) #-1 is \n, -2 is dimension
+
+            if '% Expressions' in line:
+                self.dim_field = int(line[-2]) #-1 is \n, -2 is dimension
+
+            if not self.grid and '% Grid' in line:
+                self.grid = tuple(np.genfromtxt(file,max_rows=1)/10 for i in range(self.dim_space))#convert mm to cm
+                self.shape = tuple(len(dim) for dim in self.grid)
+                self.field_values = np.empty(shape=self.shape+(self.dim_field,))
+
+                continue
+
+            if '% Data' in line:
+                self._read_comsol_data(file)
+                continue
+
     def _read_comsol_data(self,file):
+        """Read actual field data from a COMSOL .txt grid export file"""
+
         attr = file.readline()
         reg = r'\.(.+?)\s'
         attr = re.search(reg,attr).group(1)
@@ -39,6 +75,8 @@ class Field:
         self.field_values[comp_slice] = data
 
     def _from_grid_values(self,grid,values,components):
+        """Build instance from grid and field values as numpy arrays"""
+
         self.grid = grid
         self.field_values = values
         self.dim_space = grid.shape[0]
@@ -47,8 +85,6 @@ class Field:
 
         for comp_idx, comp in enumerate(components):
             self._set_component_index(comp,comp_idx)
-
-        self._finalize()
 
     def __init__(self,filename=None,gridspec=None):
         self.components = {}
@@ -59,41 +95,18 @@ class Field:
         
         if filename is None:
             self._from_grid_values(gridspec[0],gridspec[1],gridspec[2])
-            return
+        else:
+            self._from_comsol_file(filename)
 
-        file = open(filename,'r')
-
-        while True:
-            line = file.readline()
-            if not line:
-                break
-
-            if '% Dimension' in line:
-                self.dim_space = int(line[-2]) #-1 is \n, -2 is dimension
-
-            if '% Expressions' in line:
-                self.dim_field = int(line[-2]) #-1 is \n, -2 is dimension
-
-            if not self.grid and '% Grid' in line:
-                self.grid = tuple(np.genfromtxt(file,max_rows=1)/10 for i in range(self.dim_space))#convert mm to cm
-                self.shape = tuple(len(dim) for dim in self.grid)
-                self._set_grid_convenience()
-                self.field_values = np.empty(shape=self.shape+(self.dim_field,))
-
-                continue
-
-            if '% Data' in line:
-                self._read_comsol_data(file)
-                continue
-        
         self._finalize()
-                
+
     def _setup_interpolator(self):
         self.interpolator = RegularGridInterpolator(self.grid,self.field_values)
 
     def _finalize(self):
         self._setup_interpolator()
         self._set_components_convenience()
+        self._set_grid_convenience()
              
     def getValue(self,pos):
         try:
