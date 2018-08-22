@@ -29,7 +29,6 @@ class Field:
 
     def _from_comsol_file(self,filename):
         """Build instance from a COMSOL .txt grid export file"""
-
         file = open(filename,'r')
 
         while True:
@@ -56,7 +55,6 @@ class Field:
 
     def _read_comsol_data(self,file):
         """Read actual field data from a COMSOL .txt grid export file"""
-
         attr = file.readline()
         reg = r'\.(.+?)\s'
         attr = re.search(reg,attr).group(1)
@@ -76,7 +74,6 @@ class Field:
 
     def _from_grid_values(self,grid,values,components):
         """Build instance from grid and field values as numpy arrays"""
-
         self.grid = grid
         self.field_values = values
         self.dim_space = grid.shape[0]
@@ -85,6 +82,16 @@ class Field:
 
         for comp_idx, comp in enumerate(components):
             self._set_component_index(comp,comp_idx)
+
+    def _from_npz(self,file):
+        """Build instance from a numpy.npz file containing 'grid', 'values' and 'components'"""
+        npz = np.load(file)
+        self._from_grid_values(npz['grid'],npz['values'],npz['components'])
+
+    def save(self,file):
+        """Save the field to a numpy .npz file that's smaller and loads faster than a COMSOL .txt file"""
+        components=sorted(self.components,key=lambda k:self.components[k])
+        np.savez(file,grid=self.grid,values=self.field_values,components=components)
 
     def __init__(self,filename=None,gridspec=None):
         self.components = {}
@@ -95,8 +102,12 @@ class Field:
         
         if filename is None:
             self._from_grid_values(gridspec[0],gridspec[1],gridspec[2])
-        else:
+        elif filename.endswith('.txt'):
             self._from_comsol_file(filename)
+        elif filename.endswith('.npz'):
+            self._from_npz(filename)
+        else:
+            raise ValueError("Invalid file")
 
         self._finalize()
 
