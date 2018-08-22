@@ -2,6 +2,7 @@ import numpy as np
 import re
 from scipy.interpolate import RegularGridInterpolator
 import copy
+import os.path
 
 class Field:
     """
@@ -9,6 +10,12 @@ class Field:
 
     Allows interpolation of field values for off-grid positions,
     calculation of superpositions of multiple fields and reading COMSOL exported .txt
+
+    Args:
+        filename: File to load from. Can be a COMSOL .txt grid export or a numpy .npz file
+        gridspec: Used to pass a list containing grid, field values and field component names if `filename` is `None`
+        allow_convert : If `True`, convert COMSOL .txt files to numpy npz format (appending '.npz' to filename),
+            or load converted file if it already exists and is newer than .txt file
     """
 
     def _set_component_index(self,name,index):
@@ -93,7 +100,15 @@ class Field:
         components=sorted(self.components,key=lambda k:self.components[k])
         np.savez(file,grid=self.grid,values=self.field_values,components=components)
 
-    def __init__(self,filename=None,gridspec=None):
+    def _load_or_convert_to_npz(self,filename):
+        filename_conv = filename+'.npz'
+        if os.path.exists(filename_conv) and os.path.getmtime(filename) < os.path.getmtime(filename_conv):
+            self._from_npz(filename_conv)
+        else:
+            self._from_comsol_file(filename)
+            self.save(filename_conv)
+
+    def __init__(self,filename=None,gridspec=None,allow_convert=True):
         self.components = {}
         self.interpolator = {}
         self.dim_space = -1
@@ -103,7 +118,10 @@ class Field:
         if filename is None:
             self._from_grid_values(gridspec[0],gridspec[1],gridspec[2])
         elif filename.endswith('.txt'):
-            self._from_comsol_file(filename)
+            if allow_convert:
+                self._load_or_convert_to_npz(filename)
+            else:
+                self._from_comsol_file(filename)
         elif filename.endswith('.npz'):
             self._from_npz(filename)
         else:
