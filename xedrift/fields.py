@@ -146,10 +146,10 @@ class Field:
 
     def _check_operator_valid(self,other):
         if not isinstance(other,Field):
-            raise NotImplemented
+            raise ValueError("other has to be a Field")
 
         if not np.shape(other.field_values) == np.shape(self.field_values):
-            raise ValueError
+            raise ValueError("Incompatible field shapes")
 
     def __add__(self, other):
         self._check_operator_valid(other)
@@ -171,7 +171,7 @@ class Field:
     
     def __rmul__(self, other):
         if not (isinstance(other,float) or isinstance(other,int)):
-            raise NotImplemented
+            raise ValueError("Can only multiply field with float or int")
             
         new = copy.deepcopy(self)
         new.field_values = self.field_values * other
