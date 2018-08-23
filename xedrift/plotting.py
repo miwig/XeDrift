@@ -1,11 +1,13 @@
-from xedrift.tpc import *
+import xedrift.tpc
 import matplotlib.pyplot as plt
 
-def drawTPC(ax):
-    ax.hlines(z_liquid,colors='black',xmin=0,xmax=r_tpc)
-    ax.hlines(z_tpc,colors='black',xmin=0,xmax=r_tpc)
-    ax.vlines(r_tpc,colors='black',ymin=z_tpc,ymax=z_liquid)
-    ax.hlines(0,colors='black',linestyles=':',xmin=0,xmax=r_tpc)
+def drawTPC(ax=None,tpc=xedrift.tpc):
+    if(ax is None):
+        ax = plt.gca()
+    ax.hlines(tpc.z_liquid,colors='black',xmin=0,xmax=tpc.r_max)
+    ax.hlines(tpc.z_min,colors='black',xmin=0,xmax=tpc.r_max)
+    ax.vlines(tpc.r_max,colors='black',ymin=tpc.z_min,ymax=tpc.z_liquid)
+    ax.hlines(0,colors='black',linestyles=':',xmin=0,xmax=tpc.r_max)
     
     
 def plotStream(stream,**kwargs):
