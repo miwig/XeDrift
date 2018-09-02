@@ -181,3 +181,24 @@ class Field:
             
     def __mul__(self, other):
         return self.__rmul__(other)
+
+class Superposition:
+    def __init__(self,field_files,keep_in_memory=float('inf')):
+        self.files = field_files
+        self.fields = [Field(file) for idx, file in enumerate(field_files) if idx < keep_in_memory]
+
+    def get(self,coefficients):
+        field = coefficients[0] * self.fields[0]
+        for idx, c in enumerate(coefficients[1:]):
+            idx+=1
+            if idx < len(self.fields):
+                field = field + c * self.fields[idx]
+            else:
+                field2 = Field(self.files[idx])
+                field = field + c * field2
+                del field2
+
+        return field
+
+    def getWithBase(self,coefficients):
+        return self.get(np.concatenate(([1],coefficients)))
