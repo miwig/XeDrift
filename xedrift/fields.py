@@ -83,7 +83,7 @@ class Field:
         """Build instance from grid and field values as numpy arrays"""
         self.grid = grid
         self.field_values = values
-        self.dim_space = grid.shape[0]
+        self.dim_space = np.shape(grid)[0]
         self.dim_field = values.shape[-1]
         self.shape = tuple(len(dim) for dim in self.grid)
 
@@ -130,7 +130,11 @@ class Field:
         self._finalize()
 
     def _setup_interpolator(self):
-        self.interpolator = RegularGridInterpolator(self.grid,self.field_values)
+        if(self.dim_space == 3 and self.grid[2][0] > self.grid[2][-1]): #if z values are descending, flip them
+            self.grid = (self.grid[0], self.grid[1], self.grid[2][::-1])
+            self.field_values = np.flip(self.field_values,axis=2)
+
+        self.interpolator = RegularGridInterpolator(self.grid,self.field_values,bounds_error=False,fill_value=0)
 
     def _finalize(self):
         self._setup_interpolator()
@@ -141,7 +145,7 @@ class Field:
         try:
             return self.interpolator(pos)
         except ValueError:
-            print("Error at {}".format(pos))
+            #print("Error at {}".format(pos))
             return np.zeros(self.dim_field)
 
     def _check_operator_valid(self,other):
