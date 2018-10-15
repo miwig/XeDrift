@@ -9,11 +9,11 @@ def rot(X,Y,phi):
 def rotateField(field, phi):
     """Rotate field around z-axis by angle phi"""
     X,Y,Z = np.meshgrid(*field.grid,indexing='ij')
-    Xr, Yr = rot(X,Y,phi) #rotate grid
+    Xr, Yr = rot(X,Y,-phi) #rotate grid
 
     fv = field.getValue((Xr,Yr,Z)) #get field values on rotated grid
     fX, fY, fZ = fv[:,:,:,0], fv[:,:,:,1], fv[:,:,:,2]
-    fXr, fYr = rot(fX,fY,-phi) #rotate field values back to normal coordinate system
+    fXr, fYr = rot(fX,fY,phi) #rotate field values back to normal coordinate system
     fvr = np.stack((fXr,fYr,fZ),axis=-1)
 
     components=sorted(field.components,key=lambda k:field.components[k])    
