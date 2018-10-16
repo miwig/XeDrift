@@ -189,24 +189,26 @@ class Field:
 
 #could be made smarter with symmetry considerations:
 #rotating is slow so we want to precompute, mirroring might be faster and could be done on the fly
-#adding via operators like this has unneccessary steps, should just add field_values, but might not be much faster
 class Superposition:
     def __init__(self,field_files,keep_in_memory=float('inf')):
         self.files = field_files
         self.fields = [Field(file) for idx, file in enumerate(field_files) if idx < keep_in_memory]
 
     def get(self,coefficients):
-        field = coefficients[0] * self.fields[0]
+        field_values = coefficients[0] * self.fields[0].field_values
         for idx, c in enumerate(coefficients[1:]):
             idx+=1
             if idx < len(self.fields):
-                field = field + c * self.fields[idx]
+                field_values += c * self.fields[idx].field_values
             else:
                 field2 = Field(self.files[idx])
-                field = field + c * field2
+                field_values += c * field2.field_values
                 del field2
+        
+            components=sorted(self.fields[0].components,key=lambda k:self.fields[0].components[k])
 
-        return field
+        return Field(gridspec=(self.fields[0].grid,field_values,components))
+
 
     def getWithBase(self,coefficients):
         return self.get(np.concatenate(([1],coefficients)))
