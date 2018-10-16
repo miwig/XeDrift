@@ -102,8 +102,9 @@ class Field:
 
     def _load_or_convert_to_npz(self,filename):
         filename_conv = filename+'.npz'
-        if os.path.exists(filename_conv) and os.path.getmtime(filename) < os.path.getmtime(filename_conv):
-            self._from_npz(filename_conv)
+        if os.path.exists(filename_conv):
+            if (not os.path.exists(filename)) or os.path.getmtime(filename) < os.path.getmtime(filename_conv):
+                self._from_npz(filename_conv)
         else:
             self._from_comsol_file(filename)
             self.save(filename_conv)
@@ -186,6 +187,9 @@ class Field:
     def __mul__(self, other):
         return self.__rmul__(other)
 
+#could be made smarter with symmetry considerations:
+#rotating is slow so we want to precompute, mirroring might be faster and could be done on the fly
+#adding via operators like this has unneccessary steps, should just add field_values, but might not be much faster
 class Superposition:
     def __init__(self,field_files,keep_in_memory=float('inf')):
         self.files = field_files
