@@ -25,7 +25,7 @@ def vol2D(verts):
     return np.abs(rsqint(vb,vm) + rsqint(vm,vt) - rsqint(vb,vt))
 
 from scipy.spatial import ConvexHull
-def volumes(simps):
+def volumes3D(simps):
     def volHelper(simp):
         try:
             return ConvexHull(simp).volume
@@ -41,7 +41,7 @@ def counts_volumes(grid_real,tri,tri_mask,simpdf):
     if(dimension==2):
         volumes = volumes2D(simps_real) #special case: r-z space
     else:
-        volumes = volumes(simps_real)
+        volumes = volumes3D(simps_real)
 
     volume_mask = volumes > 0
     if(not np.all(volume_mask)):
