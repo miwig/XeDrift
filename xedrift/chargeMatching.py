@@ -43,18 +43,16 @@ def counts_volumes(grid_real,tri,tri_mask,simpdf):
     else:
         volumes = volumes3D(simps_real)
 
-    volume_mask = volumes > 0
-    if(not np.all(volume_mask)):
-        print("All volumes > 0: {}".format(np.all(volume_mask)))
+    volumes_valid = volumes > 0
+    if(not np.all(volumes_valid[tri_mask])):
+        print("Invalid volumes! {}".format(np.where(np.logical_not(volumes_valid))))
 
 
-    new_mask = tri_mask.copy()#np.logical_and(tri_mask, volume_mask)
-
-    vol_tpc = np.sum(volumes[new_mask]) #correct?
+    vol_tpc = np.sum(volumes[tri_mask]) #correct?
     #print("TPC volume %: {0:.3f}".format(vol_tpc/(tpc_x1t.r_max**2 * -(tpc_x1t.z_min))))
-    count_expected = volumes/vol_tpc * simpdf.events[new_mask].sum() #correct? or use all events?
+    count_expected = volumes/vol_tpc * simpdf.events[tri_mask].sum() #correct? or use all events?
     count_std = np.sqrt(count_expected) #correct? (or sqrt(simpdf.events)? no! p(D|Q)!
-    return count_expected, count_std, volumes, new_mask
+    return count_expected, count_std, volumes
 
 def deviations(simpdf,count_expected,count_std,tri_mask):
     return ((simpdf.events - count_expected)/count_std)[tri_mask]
@@ -63,10 +61,10 @@ def driftHelp(drifter,x0):
     return drifter.driftReverse(x0)
 
 def log_like_grid(grid_real,triangulation,tri_mask,simpdf):
-    count_expected, count_std, volumes, new_mask = counts_volumes(grid_real,triangulation,tri_mask,simpdf)
-    devs = deviations(simpdf,count_expected, count_std, new_mask)
-    log_l = -0.5*devs**2 - np.log(count_std[new_mask])
-    return log_l, devs
+    count_expected, count_std, volumes = counts_volumes(grid_real,triangulation,tri_mask,simpdf)
+    devs = deviations(simpdf,count_expected, count_std, tri_mask)
+    log_l = -0.5*devs**2 - np.log(count_std[tri_mask])
+    return log_l.fillna(-np.inf), devs
 
 def log_like(tpc,superpos,grid_obs,triangulation,tri_mask,simpdf,pool,coeffs,field_override=None):
     if(field_override):
@@ -83,7 +81,7 @@ def log_like(tpc,superpos,grid_obs,triangulation,tri_mask,simpdf,pool,coeffs,fie
     grid_r = np.array(pool.map(drift_f, grid_obs))
 
     log_l, devs = log_like_grid(grid_r,triangulation,tri_mask,simpdf)
-
+    
     return np.sum(log_l), grid_r
 
 def MHStep(state,log_l_f,log_l_prev,scale=0.2,nudgeSingle=True):
