@@ -1,6 +1,10 @@
+import pickle
+import pandas as pd
+import time, os
 from functools import partial
 from xedrift.driftingNaive import Drifting2D
 from xedrift.driftingNaive3D import Drifting3D
+from xedrift.fields import Superposition
 import numpy as np
 
 def volumes2D(simps):
@@ -45,7 +49,8 @@ def counts_volumes(grid_real,tri,tri_mask,simpdf):
 
     volumes_valid = volumes > 0
     if(not np.all(volumes_valid[tri_mask])):
-        print("Invalid volumes! {}".format(np.where(np.logical_not(volumes_valid))))
+        inv_volumes = np.where(np.logical_not(volumes_valid[tri_mask]))[0]
+        print("{} invalid volumes! {}".format(len(inv_volumes),inv_volumes))
 
 
     vol_tpc = np.sum(volumes[tri_mask]) #correct?
@@ -64,7 +69,7 @@ def log_like_grid(grid_real,triangulation,tri_mask,simpdf):
     count_expected, count_std, volumes = counts_volumes(grid_real,triangulation,tri_mask,simpdf)
     devs = deviations(simpdf,count_expected, count_std, tri_mask)
     log_l = -0.5*devs**2 - np.log(count_std[tri_mask])
-    return log_l.fillna(-np.inf), devs
+    return log_l.fillna(2*log_l.min()), devs
 
 def log_like(tpc,superpos,grid_obs,triangulation,tri_mask,simpdf,pool,coeffs,field_override=None):
     if(field_override):
@@ -78,7 +83,7 @@ def log_like(tpc,superpos,grid_obs,triangulation,tri_mask,simpdf,pool,coeffs,fie
         drifter = Drifting3D(field,tpc)
 
     drift_f = partial(driftHelp,drifter)
-    grid_r = np.array(pool.map(drift_f, grid_obs))
+    grid_r = np.array(pool.map(drift_f, grid_obs,chunksize=60))
 
     log_l, devs = log_like_grid(grid_r,triangulation,tri_mask,simpdf)
     
@@ -93,13 +98,128 @@ def MHStep(state,log_l_f,log_l_prev,scale=0.2,nudgeSingle=True):
     else:
         newstate = state + np.random.normal(scale=scale,size=len(state))
 
-    print("New state: {}".format(np.array2string(newstate, formatter={'float_kind':'{0:.3f}'.format})))
+    #print("New state: {}".format(np.array2string(newstate, formatter={'float_kind':'{0:.3f}'.format})))
     log_l, *meta = log_l_f(newstate)
     print("{:.3f}/{:.3f}".format(log_l,log_l_prev))
     l_ratio = np.exp(log_l - log_l_prev)
-    print("L ratio: {:.3f}".format(l_ratio))
+    print("L ratio: {:.3e}".format(l_ratio))
     #accept newstate with probability l_ratio
     if(np.random.uniform(0,1) < l_ratio):
         return (newstate, log_l, True, *meta)
     else:
         return (state, log_l_prev, False, *meta)
+
+pos_cols = ['x_observed_nn','y_observed_nn','drift_time_us']
+
+def make_dir(directory):
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+
+def binCenters(bins):
+    return (bins[1:] + bins[:-1])/2
+
+def longest_side(tri):
+    def d(x,y):
+        return np.linalg.norm(x-y)
+
+    return np.max([d(tri[0],tri[1]),
+                   d(tri[0],tri[2]),
+                   d(tri[0],tri[3]),
+                   d(tri[1],tri[2]),
+                   d(tri[1],tri[3]),
+                   d(tri[2],tri[3])])
+
+from scipy.interpolate import RegularGridInterpolator
+def preprocess_grid(grid, data):
+    xybins = np.linspace(-50,50,20)
+    bins = (xybins,xybins,np.linspace(0,800))
+    hcounts, hbins = np.histogramdd(np.array(data[pos_cols]),bins=bins)
+    interp = RegularGridInterpolator(tuple(binCenters(b) for b in hbins),hcounts,bounds_error=False,fill_value=None)
+    return grid[interp(grid) > np.median(hcounts[hcounts>0])*.5]
+
+from scipy.spatial import Delaunay
+def triangulate_grid(grid):
+     return Delaunay(grid)
+
+def count_events(triangulation,data):
+    simp_counts = pd.DataFrame(triangulation.simplices,columns=['v1','v2','v3','v4'])
+    positions_obs = data[pos_cols].values
+    idx, counts = np.unique(triangulation.find_simplex(positions_obs),return_counts=True)
+    simp_counts['events'] = pd.DataFrame(counts,index=idx) #idx=-1 is excluded automatically
+    return simp_counts
+
+def mask_triangulation(triangulation,grid,simp_counts):
+    simps_coords = grid[triangulation.simplices]
+    simps_vols = volumes3D(simps_coords)
+    print("Masking {} simplices".format(len(simps_coords)))
+
+    tri_mask = simps_vols > 0
+    print("{} left after volume > 0".format(sum(tri_mask)))
+
+    tri_mask = tri_mask & (simps_vols < np.mean(simps_vols[tri_mask]) * 2)
+    print("{} left after volume < 2*mean_volume".format(sum(tri_mask)))
+
+    countmean, countstd = simp_counts[tri_mask].events.mean(), simp_counts[tri_mask].events.std()
+    tri_mask = (simp_counts.events > countmean - 3 * countstd)
+    print("{} left after counts > mean counts ({}) - 3 * std ({})".format(sum(tri_mask),countmean,countstd))
+
+    tri_mask = tri_mask & (np.array([longest_side(tri) for tri in grid[triangulation.simplices]]) < 100)
+    print("{} left after longest side < 100".format(sum(tri_mask)))
+    #exclude simps based on longest size in 2d?
+
+    return tri_mask
+
+from collections import namedtuple
+MatchData = namedtuple('MatchData', ['states', 'log_ls', 'accs', 'metas'])
+
+def init_match_data(results_dir, log_l_f, state_0):
+    results_path = results_dir+'/matchresult.p'
+    result_loaded = False
+
+    if os.path.exists(results_path):
+        p_data = pickle.load(open(results_path,'rb'))
+        match_data = p_data['match_data']
+        print("Continuing from {}".format(results_path))
+        result_loaded = True
+
+    if not result_loaded:
+        start_time = time.time()
+
+        print("Starting matching with initial state {}".format(state_0))
+        log_l_0, *meta_0 = log_l_f(state_0)
+        time_elapsed = (time.time() - start_time)
+        print("Log-L: {:.2f}".format(log_l_0))
+        print("First iteration took {:.2f} s".format(time_elapsed))
+        #print("avg time/it/grid-point: {:.5f}".format(time_elapsed/len(grid)))
+
+        match_data = MatchData([],[],[],[])
+        match_data.states.append(state_0)
+        match_data.log_ls.append(log_l_0)
+        match_data.accs.append(True)
+        match_data.metas.append(meta_0)
+
+    return match_data
+
+def r_filter(simps,r_min=0,r_max=np.inf):
+    vert_dists = np.linalg.norm(simps[:,:,:2],axis=2)
+    return np.logical_and(np.min(vert_dists,axis=1) > r_min, np.max(vert_dists,axis=1) < r_max)
+
+def to_polar(x, y):
+    r = np.sqrt(x**2 + y**2)
+    phi = np.arctan2(y, x)
+    return r, phi
+
+def center_filter(simps,r_min=0,r_max=np.inf,phi_min=-np.pi,phi_max=np.pi,z_min=-np.inf,z_max=np.inf):
+    centers = np.mean(simps,axis=1)
+    r, phi = to_polar(*centers.T[:2])
+    filter_z = (z_min < centers[:,2]) & (z_max > centers[:,2])
+    filter_r = (r > r_min) & (r < r_max)
+    print(sum(filter_r))
+    filter_phi = (phi > phi_min) & (phi < phi_max)
+    return filter_phi & filter_r & filter_z
+
+def makeSuperposition(model_path,charges_n_phi,charges_n_z,keep_in_memory=float('inf')):
+    fields = [model_path+'/charge_{}/electric_field.txt'.format(i) for i in range(charges_n_z)]
+    fields += [model_path+'/charge_{}/electric_field_rot_{}.txt.npz'.format(i,j) for j in range(1,charges_n_phi) for i in range(charges_n_z)]
+    fields.insert(0,model_path+'/no_charge/electric_field.txt')
+    return Superposition(fields,keep_in_memory)
