@@ -197,6 +197,9 @@ class Superposition:
     def get(self,coefficients):
         field_values = coefficients[0] * self.fields[0].field_values
         for idx, c in enumerate(coefficients[1:]):
+            if c==0:
+                continue
+
             idx+=1
             if idx < len(self.fields):
                 field_values += c * self.fields[idx].field_values
