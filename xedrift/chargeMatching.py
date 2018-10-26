@@ -160,7 +160,7 @@ def mask_triangulation(triangulation,grid,simp_counts):
     print("{} left after volume < 2*mean_volume".format(sum(tri_mask)))
 
     countmean, countstd = simp_counts[tri_mask].events.mean(), simp_counts[tri_mask].events.std()
-    tri_mask = (simp_counts.events > countmean - 3 * countstd)
+    tri_mask = tri_mask & (simp_counts.events > countmean - 3 * countstd)
     print("{} left after counts > mean counts ({}) - 3 * std ({})".format(sum(tri_mask),countmean,countstd))
 
     tri_mask = tri_mask & (np.array([longest_side(tri) for tri in grid[triangulation.simplices]]) < 100)
