@@ -102,9 +102,8 @@ class Field:
 
     def _load_or_convert_to_npz(self,filename):
         filename_conv = filename+'.npz'
-        if os.path.exists(filename_conv):
-            if (not os.path.exists(filename)) or os.path.getmtime(filename) < os.path.getmtime(filename_conv):
-                self._from_npz(filename_conv)
+        if os.path.exists(filename_conv) and ((not os.path.exists(filename)) or os.path.getmtime(filename) < os.path.getmtime(filename_conv)):
+            self._from_npz(filename_conv)
         else:
             self._from_comsol_file(filename)
             self.save(filename_conv)
@@ -208,7 +207,7 @@ class Superposition:
                 field_values += c * field2.field_values
                 del field2
         
-            components=sorted(self.fields[0].components,key=lambda k:self.fields[0].components[k])
+        components=sorted(self.fields[0].components,key=lambda k:self.fields[0].components[k])
 
         return Field(gridspec=(self.fields[0].grid,field_values,components))
 
