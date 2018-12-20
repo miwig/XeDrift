@@ -89,6 +89,27 @@ def log_like(tpc,superpos,grid_obs,triangulation,tri_mask,simpdf,pool,coeffs,fie
     
     return np.sum(log_l), grid_r
 
+def log_like_no_pool(tpc,superpos,grid_obs,triangulation,tri_mask,simpdf,coeffs,field_override=None):
+    if np.any(coeffs > 0):
+        return -np.inf, None
+
+    if(field_override):
+        field = field_override
+    else:
+        field = superpos.getWithBase(coeffs)
+
+    if(field.dim_space==2):
+        drifter = Drifting2D(field,tpc)
+    else:
+        drifter = Drifting3D(field,tpc)
+
+    drift_f = partial(driftHelp,drifter)
+    grid_r = np.array(list(map(drift_f, grid_obs)))
+
+    log_l, devs = log_like_grid(grid_r,triangulation,tri_mask,simpdf)
+
+    return np.sum(log_l), grid_r
+
 def MHStep(state,log_l_f,log_l_prev,scale=0.2,nudgeSingle=True):
     #make new guess
     newstate = state.copy()
@@ -97,6 +118,8 @@ def MHStep(state,log_l_f,log_l_prev,scale=0.2,nudgeSingle=True):
         newstate[idx] += np.random.normal(scale=scale)
     else:
         newstate = state + np.random.normal(scale=scale,size=len(state))
+
+    newstate = np.clip(newstate,None,0)
 
     #print("New state: {}".format(np.array2string(newstate, formatter={'float_kind':'{0:.3f}'.format})))
     log_l, *meta = log_l_f(newstate)
@@ -181,6 +204,20 @@ def init_match_data(results_dir, log_l_f, state_0):
         match_data = p_data['match_data']
         print("Continuing from {}".format(results_path))
         result_loaded = True
+
+        #recalculate first log_l in case log_l_f changed since last time
+        match_data.states[-1] = np.clip(match_data.states[-1],None,0)
+        state_0 = match_data.states[-1]
+        print("Starting matching with loaded initial state {}".format(state_0))
+        start_time = time.time()
+        log_l_0, *meta_0 = log_l_f(state_0)
+        time_elapsed = (time.time() - start_time)
+        print("Log-L: {:.2f} (loaded: {:.2f})".format(log_l_0,match_data.log_ls[-1]))
+        print("Recalculation took {:.2f} s".format(time_elapsed))
+
+        if np.abs(log_l_0 - match_data.log_ls[-1]) > 0.1:
+            match_data.log_ls[-1] = log_l_0
+            print("Loaded Log-L replaced with recalculated value!")
 
     if not result_loaded:
         start_time = time.time()
