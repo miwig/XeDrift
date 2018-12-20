@@ -6,7 +6,7 @@ class Drifting3D:
     def __init__(self,field,tpc):
         self.field = field
         self.tpc = tpc
-        self.RHS = partial(drifting.driftRHS,field,tpc.drift_velocity)
+        self.RHS = partial(drifting.driftRHS_3D,field,tpc.drift_velocity)
 
     def toSurface(self,x0,dt=1e-6,t_max = 2e-3):
         x=np.copy(x0)
@@ -24,7 +24,9 @@ class Drifting3D:
             x = x+dx
             t = t+dt
 
-            if(not self.tpc.inside3D(x) or t > t_max or np.allclose(dx,0)):
+            dx = np.abs(dx)
+
+            if(not self.tpc.inside3D(x) or t > t_max or (dx[0] < 1e-5 and dx[1] < 1e-5 and dx[2] < 1e-5)):#np.allclose(dx,0)):
                 return np.array([np.NAN, np.NAN, t*1e6])
 
         return np.array([x[0], x[1], t * 1e6]) #(µs)
