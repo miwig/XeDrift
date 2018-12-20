@@ -4,6 +4,15 @@ from scipy.interpolate import RegularGridInterpolator
 import copy
 import os.path
 
+use_cython = True
+
+try:
+    import pyximport; pyximport.install()
+    from xedrift.interpolation import trilinear_interpolate4d
+except:
+    warn("Cython import failed, falling back to RegularGridInterpolator")
+    use_cython = False
+
 class Field:
     """
     Represents a multi-dimensional field given on a grid
@@ -134,13 +143,26 @@ class Field:
             self.grid = (self.grid[0], self.grid[1], self.grid[2][::-1])
             self.field_values = np.flip(self.field_values,axis=2)
 
-        self.interpolator = RegularGridInterpolator(self.grid,self.field_values,bounds_error=False,fill_value=0)
+        self._grid_steps = np.array([g[1] - g[0] for g in self.grid])
+        self._grid_steps_inv = 1/self._grid_steps
+        self._grid_edges = np.array([g[0] for g in self.grid])
+
+        if self.dim_space == 3 and use_cython:
+            self.getValue = self._get_value_fast
+        else:
+            self.interpolator = RegularGridInterpolator(self.grid,self.field_values,bounds_error=False,fill_value=0)
 
     def _finalize(self):
         self._setup_interpolator()
         self._set_components_convenience()
         self._set_grid_convenience()
-             
+
+    def _get_value_fast(self,pos):
+        try:
+            return trilinear_interpolate4d(self.field_values,np.asanyarray(pos),self._grid_steps_inv,self._grid_edges)
+        except IndexError:
+            return np.zeros(self.dim_field)
+
     def getValue(self,pos):
         try:
             return self.interpolator(pos)
