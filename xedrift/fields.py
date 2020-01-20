@@ -4,7 +4,7 @@ from scipy.interpolate import RegularGridInterpolator
 import copy
 import os.path
 
-use_cython = True
+use_cython = True #use cython for interpolation
 
 try:
     import pyximport; pyximport.install()
@@ -164,6 +164,7 @@ class Field:
             return np.zeros(self.dim_field)
 
     def getValue(self,pos):
+        """Get (interpolated) field value at position pos"""
         try:
             return self.interpolator(pos)
         except ValueError:
@@ -211,11 +212,22 @@ class Field:
 #could be made smarter with symmetry considerations:
 #rotating is slow so we want to precompute, mirroring might be faster and could be done on the fly
 class Superposition:
+    """For calculating superpositions of multiple fields efficiently
+    
+        Args:
+            field_files: list of .txt or .npz files containing field data
+            keep_in_memory: keep just this number of fields in memory, others will be loaded from disk each time
+    """
     def __init__(self,field_files,keep_in_memory=float('inf')):
         self.files = field_files
         self.fields = [Field(file) for idx, file in enumerate(field_files) if idx < keep_in_memory]
 
     def get(self,coefficients):
+        """Calculate a superposition
+        
+            Args:
+                coefficients: list of coefficients that each field will be multiplied with, in the order of the files given to the constructor
+        """
         field_values = coefficients[0] * self.fields[0].field_values
         for idx, c in enumerate(coefficients[1:]):
             if c==0:
@@ -235,4 +247,9 @@ class Superposition:
 
 
     def getWithBase(self,coefficients):
+        """As `get` with the first coefficient always set to 1
+            
+            Args:
+                coefficients: list of coefficients for the remaining fields
+        """
         return self.get(np.concatenate(([1],coefficients)))

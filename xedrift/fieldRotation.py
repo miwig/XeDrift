@@ -26,6 +26,12 @@ import os
 import gc
 
 def rotateFile(path,steps,start=1,**kwargs):
+    """Create copies rotated around z-axis of a file containing field data
+        
+        Args: 
+                path: path to file
+                steps: rotation angles will be range(1,steps) * 2pi/steps
+    """
     if(not ".txt" in path):
         raise ValueError
 

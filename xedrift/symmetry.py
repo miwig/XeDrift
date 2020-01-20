@@ -4,6 +4,7 @@ import numpy as np
 #to the full n_phi * n_z parameters needed for plotting/calculating superpositions
 
 def n_fold_symmetry(n,coeffs):
+    """Concatenate n copies of the list of coeffs to get n-fold symmetry"""
     return n*coeffs
 
 def sliding_fixed_foreach_z(n_phi,coeffs):
@@ -14,7 +15,9 @@ def sliding_fixed_foreach_z(n_phi,coeffs):
     return n_fold_symmetry(int(n_phi/2),qs)
 
 def single_fixed_n_sliding(n_phi,n_z,n,coeffs):
-    """Coefficients for alternating fixed and sliding reflectors: (f,s1,s2,...,sn)->(s1,f,s2,f,...,sn,f) * n_phi/(2*n)"""
+    """Given n_z coefficients for a fixed reflector (f) and n*n_z coefficients for sliding reflectors (s1,...,sn),
+    alternate between sliding and (always the same) fixed, then repeat the pattern to fill the cylinder, giving n_phi/(2*n)-fold symmetry:
+    (f,s1,s2,...,sn)->(s1,f,s2,f,...,sn,f) * n_phi/(2*n)"""
     qs_fixed = coeffs[:n_z]
     qs_sliding = (coeffs[n_z*i:n_z*(i+1)] for i in range(1,n+1))
 
@@ -25,4 +28,7 @@ def single_fixed_n_sliding(n_phi,n_z,n,coeffs):
     return qs
 
 def n_sliding_only(n_phi,n_z,n,coeffs):
+    """As `single_fixed_n_sliding`, but set coefficients for fixed reflectors to zero:
+    (s1,s2,...,sn)->(s1,0,s2,0,...,sn,0) * n_phi/(2*n)
+    """
     return single_fixed_n_sliding(n_phi,n_z,n,[0]* n_z + coeffs)

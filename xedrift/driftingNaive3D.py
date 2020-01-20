@@ -3,12 +3,28 @@ import xedrift.drifting as drifting
 from functools import partial
 
 class Drifting3D:
+    """A class for drifting particles along electric field lines in a TPC in 3D using the Euler method"""
     def __init__(self,field,tpc):
+        """
+            Args:
+                field: a `xedrift.fields.Field` object representing the field to drift in
+                tpc: an object representing the properties of the TPC, i.e. physical dimensions and drift velocity
+        """
         self.field = field
         self.tpc = tpc
         self.RHS = partial(drifting.driftRHS_3D,field,tpc.drift_velocity)
 
     def toSurface(self,x0,dt=1e-6,t_max = 2e-3):
+        """Drift a particle to the liquid surface
+        
+            Args:
+                x0: starting position
+                dt: time step in seconds
+                t_max: maximum drift time in seconds before drifting is aborted
+                
+            Returns:
+                a `numpy.array` containing x, y position at the liquid surface and drift time in µs
+        """
         x=np.copy(x0)
         t=0
 
@@ -32,6 +48,15 @@ class Drifting3D:
         return np.array([x[0], x[1], t * 1e6]) #(µs)
     
     def driftReverse(self,xyt0,dt=1e-6):
+        """Given the observed x,y-position at the liquid surface and the drift time, calculate the starting point of the particle by reverse drifting
+        
+            Args:
+                xyt0: array-like containing x,y and drift time in seconds
+                dt: time step in seconds
+            
+            Returns:
+                a `numpy.array` containing x, y, z for the starting point of the particle
+        """
         x=np.array([xyt0[0],xyt0[1],0])
         t=xyt0[2]/1e6
 
@@ -45,6 +70,7 @@ class Drifting3D:
         return np.array([x[0], x[1], x[2]]) #(µs)
 
     def stream(self,x0,dt=1e-6,t_max = 2e-3):
+        """Drift a particle to the liquid surface while keeping track of the intermediate positions for visualization"""
         stream = np.array([*x0,0],ndmin=2)
         x=np.copy(x0)
         t=0

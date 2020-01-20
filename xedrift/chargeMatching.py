@@ -30,6 +30,7 @@ def vol2D(verts):
 
 from scipy.spatial import ConvexHull
 def volumes3D(simps):
+    """Calculate the volumes for a list of simplices"""
     def volHelper(simp):
         try:
             return ConvexHull(simp).volume
@@ -40,6 +41,17 @@ def volumes3D(simps):
     return np.array([volHelper(simp) for simp in simps])
 
 def counts_volumes(grid_real,tri,tri_mask,simpdf):
+    """Calculate the expected number of events in each simplex (assuming uniform distribution) in real space used in the likelihood calculation
+    
+    Args:
+        grid_real: the grid in real space obtained by reverse-drifting the observation space grid along the field lines
+        tri: the `scipy.spatial.Delaunay` triangulation built from the observation space grid from which `grid_real` was obtained
+        tri_mask: a list of booleans obtained via the `mask_triangulation` function, used to exclude simplices with undesirable properties from the calculation
+        simpdf: a `pandas.DataFrame` returned from `count_events`, containing the number of events in each simplex
+        
+    Returns:
+        for each simplex: the expected number of events, the square root (error) of the expected events, the real space volume
+    """
     dimension = len(grid_real[0])
     simps_real = grid_real[tri.simplices]
     if(dimension==2):
@@ -55,23 +67,37 @@ def counts_volumes(grid_real,tri,tri_mask,simpdf):
 
     vol_tpc = np.sum(volumes[tri_mask]) #correct?
     #print("TPC volume %: {0:.3f}".format(vol_tpc/(tpc_x1t.r_max**2 * -(tpc_x1t.z_min))))
-    count_expected = volumes/vol_tpc * simpdf.events[tri_mask].sum() #correct? or use all events?
-    count_std = np.sqrt(count_expected) #correct? (or sqrt(simpdf.events)? no! p(D|Q)!
+    count_expected = volumes/vol_tpc * simpdf.events[tri_mask].sum()
+    count_std = np.sqrt(count_expected) #(or sqrt(simpdf.events)? no! p(D|Q)!
     return count_expected, count_std, volumes
 
 def deviations(simpdf,count_expected,count_std,tri_mask):
+    """Calculate the difference between the observed and expected events in each simplex (divided by the error in expected events), used in the likelihood calculation"""
     return ((simpdf.events - count_expected)/count_std)[tri_mask]
 
 def driftHelp(drifter,x0):
     return drifter.driftReverse(x0)
 
 def log_like_grid(grid_real,triangulation,tri_mask,simpdf):
+    """Calculate log-likelihood for each real space subvolume (simplex) obtained by reverse drifting
+    Simplices with invalid results, e.g. due to no events expected, are set to twice the worst valid result
+    
+    Args:
+        grid_real: the grid in real space obtained by reverse-drifting the observation space grid along the field lines
+        triangulation: the `scipy.spatial.Delaunay` triangulation built from the observation space grid from which `grid_real` was obtained
+        tri_mask: a list of booleans obtained via the `mask_triangulation` function, used to exclude simplices with undesirable properties from the calculation
+        simpdf: a `pandas.DataFrame` returned from `count_events`, containing the number of events in each simplex
+        
+    Returns:
+        for each simplex: the log-likelihood value, the deviation returned by `deviations`
+    """
     count_expected, count_std, volumes = counts_volumes(grid_real,triangulation,tri_mask,simpdf)
     devs = deviations(simpdf,count_expected, count_std, tri_mask)
     log_l = -0.5*devs**2 - np.log(count_std[tri_mask])
     return log_l.fillna(2*log_l.min()), devs
 
 def log_like(tpc,superpos,grid_obs,triangulation,tri_mask,simpdf,pool,coeffs,field_override=None):
+    """As `log_like_no_pool` but using a pool to do drifting in parallel"""
     if(field_override):
         field = field_override
     else:
@@ -90,6 +116,20 @@ def log_like(tpc,superpos,grid_obs,triangulation,tri_mask,simpdf,pool,coeffs,fie
     return np.sum(log_l), grid_r
 
 def log_like_no_pool(tpc,superpos,grid_obs,triangulation,tri_mask,simpdf,coeffs,field_override=None):
+    """Calculate the log-likelihood for a given charge distribution by drifting charges backwards along the fieldlines
+    
+    Args:
+        tpc: an object specifying the bounds of the TPC to prevent drifting outside the valid region
+        superpos: a `xedrift.fields.Superposition` object to calculate the drift field for the charge distribution as a superposition
+        grid_obs: the observation space grid points used to divide the data into tetrahedral subvolumes
+        triangulation: a `scipy.spatial.Delaunay` object built from grid_obs
+        tri_mask: a list of booleans corresponding to each simplex in `triangulation`. Simplices corresponding to `False` entries are excluded from the likelihood calculation
+        simpdf: a `pandas.DataFrame` containing the number of events observed in each simplex
+        coeffs: coefficients corresponding to the charge distribution, passed to `superpos.getWithBase`
+        
+    Returns:
+        the log-likelihood, the reverse-drifted grid points in real space corresponding to `grid_obs`
+    """
     if np.any(coeffs > 0):
         return -np.inf, None
 
@@ -111,6 +151,21 @@ def log_like_no_pool(tpc,superpos,grid_obs,triangulation,tri_mask,simpdf,coeffs,
     return np.sum(log_l), grid_r
 
 def MHStep(state,log_l_f,log_l_prev,scale=0.2,nudgeSingle=True):
+    """Calculate a single step of the Metropolis algorithm
+    
+    Args:
+        state: the current state vector
+        log_l_f: a log-likelihood function that accepts a state vector and has the log-likelihood as its first return value
+        log_l_prev: the log-likelihood for the current state
+        scale: the scale of the normal distribution used to modify the state vector
+        nudgeSingle: if `True`, only one coefficient of the state vector is modified for each step (Gibbs-sampling)
+        
+    Returns:
+        the new state vector,
+        the corresponding log-likelihood,
+        a boolean indicating if the proposed state was accepted,
+        the remaining return values of `log_l_f`
+    """
     #make new guess
     newstate = state.copy()
     if(nudgeSingle):
@@ -154,6 +209,16 @@ def longest_side(tri):
 
 from scipy.interpolate import RegularGridInterpolator
 def preprocess_grid(grid, data):
+    """Remove grid points that fall outside the data
+    where outside the data means in histogram bins with less than 0.5*median bin counts
+    
+    Args:
+        grid: the observation space grid points
+        data: `pandas.DataFrame` with observed data
+    
+    Returns:
+        grid with points outside data removed
+    """
     xybins = np.linspace(-50,50,20)
     bins = (xybins,xybins,np.linspace(0,800))
     hcounts, hbins = np.histogramdd(np.array(data[pos_cols]),bins=bins)
@@ -162,9 +227,19 @@ def preprocess_grid(grid, data):
 
 from scipy.spatial import Delaunay
 def triangulate_grid(grid):
-     return Delaunay(grid)
+    """Returns Delaunay triangulation/tetrahedralization of grid points"""
+    return Delaunay(grid)
 
 def count_events(triangulation,data):
+    """Calculate number of events in each simplex subvolume
+    
+    Args:
+        triangulation: a `scipy.spatial.Delaunay` object dividing the observation space into simplex subvolumes
+        data: `pandas.DataFrame` with observed data
+        
+    Returns:
+        a `pandas.DataFrame` containing the number of events observed in each simplex
+    """
     simp_counts = pd.DataFrame(triangulation.simplices,columns=['v1','v2','v3','v4'])
     positions_obs = data[pos_cols].values
     idx, counts = np.unique(triangulation.find_simplex(positions_obs),return_counts=True)
@@ -172,6 +247,17 @@ def count_events(triangulation,data):
     return simp_counts
 
 def mask_triangulation(triangulation,grid,simp_counts):
+    """Create a mask to remove simplices from the triangulation
+    by imposing sanity checks on aspect ratio, volume and event count
+    
+    Args:
+        triangulation: a `scipy.spatial.Delaunay` object dividing the observation space into simplex subvolumes
+        grid: the observation space grid points used to build `triangulation`
+        simp_counts: a `pandas.DataFrame` returned from `count_events`
+        
+    Returns:
+        a list of booleans corresponding to each simplex in `triangulation`. `True` for simplices that pass the criteria, `False` otherwise.
+    """
     simps_coords = grid[triangulation.simplices]
     simps_vols = volumes3D(simps_coords)
     print("Masking {} simplices".format(len(simps_coords)))
@@ -196,6 +282,17 @@ from collections import namedtuple
 MatchData = namedtuple('MatchData', ['states', 'log_ls', 'accs', 'metas'])
 
 def init_match_data(results_dir, log_l_f, state_0):
+    """Set up result sequence for Metropolis algorithm
+    by either loading previous results from file or creating a new file if none exists
+    
+    Args:
+        results_dir: path to folder where results are (or will be) saved
+        log_l_f: log-likelihood function to use
+        state_0: initial state vector to use if no previous results exist to be loaded
+        
+    Returns:
+        `MatchData` namedtuple with lists of state vectors, log-likelihoods, acceptance info and metadata for each step of Metropolis algorithm
+    """
     results_path = results_dir+'/matchresult.p'
     result_loaded = False
 
@@ -238,15 +335,18 @@ def init_match_data(results_dir, log_l_f, state_0):
     return match_data
 
 def r_filter(simps,r_min=0,r_max=np.inf):
+    """Slice list of simplices according to radial criteria"""
     vert_dists = np.linalg.norm(simps[:,:,:2],axis=2)
     return np.logical_and(np.min(vert_dists,axis=1) > r_min, np.max(vert_dists,axis=1) < r_max)
 
 def to_polar(x, y):
+    """Convert cartesian to polar coordinates"""
     r = np.sqrt(x**2 + y**2)
     phi = np.arctan2(y, x)
     return r, phi
 
 def center_filter(simps,r_min=0,r_max=np.inf,phi_min=-np.pi,phi_max=np.pi,z_min=-np.inf,z_max=np.inf):
+    """Slice list of simplices by center of gravity in cylindrical coordinates"""
     centers = np.mean(simps,axis=1)
     r, phi = to_polar(*centers.T[:2])
     filter_z = (z_min < centers[:,2]) & (z_max > centers[:,2])
@@ -256,6 +356,16 @@ def center_filter(simps,r_min=0,r_max=np.inf,phi_min=-np.pi,phi_max=np.pi,z_min=
     return filter_phi & filter_r & filter_z
 
 def makeSuperposition(model_path,charges_n_phi,charges_n_z,keep_in_memory=float('inf')):
+    """Create a `xedrift.fields.Superposition` object for a model with charge distribution basis vectors corresponding to 'rectangular' wall sections
+    
+    Args:
+        model_path: path to folder where electric field data is stored
+        charges_n_phi: number of phi charge sections
+        charges_n_z: number of z charge sections
+        
+    Returns:
+        a `xedrift.fields.Superposition` object
+    """
     fields = [model_path+'/charge_{}/electric_field.txt'.format(i) for i in range(charges_n_z)]
     fields += [model_path+'/charge_{}/electric_field_rot_{}.txt.npz'.format(i,j) for j in range(1,charges_n_phi) for i in range(charges_n_z)]
     fields.insert(0,model_path+'/no_charge/electric_field.txt')
